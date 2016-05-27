@@ -4,8 +4,9 @@
  *   @author Bartek Przybylski
  *   @author Tobias Kaminsky
  *   @author David A. Velasco
+ *   @author masensio
  *   Copyright (C) 2011  Bartek Przybylski
- *   Copyright (C) 2015 ownCloud Inc.
+ *   Copyright (C) 2016 ownCloud Inc.
  *
  *   This program is free software: you can redistribute it and/or modify
  *   it under the terms of the GNU General Public License version 2,
@@ -22,9 +23,6 @@
  */
 package com.owncloud.android.ui.adapter;
 
-
-import java.io.File;
-import java.util.Vector;
 
 import android.accounts.Account;
 import android.content.Context;
@@ -54,6 +52,9 @@ import com.owncloud.android.services.OperationsService.OperationsServiceBinder;
 import com.owncloud.android.ui.activity.ComponentsGetter;
 import com.owncloud.android.utils.DisplayUtils;
 import com.owncloud.android.utils.FileStorageUtils;
+import com.owncloud.android.utils.MimetypeIconUtil;
+
+import java.util.Vector;
 
 
 /**
@@ -61,7 +62,6 @@ import com.owncloud.android.utils.FileStorageUtils;
  * instance.
  */
 public class FileListListAdapter extends BaseAdapter implements ListAdapter {
-    private final static String PERMISSION_SHARED_WITH_ME = "S";
 
     private Context mContext;
     private OCFile mFile = null;
@@ -87,12 +87,14 @@ public class FileListListAdapter extends BaseAdapter implements ListAdapter {
         mJustFolders = justFolders;
         mContext = context;
         mAccount = AccountUtils.getCurrentOwnCloudAccount(mContext);
+
         mTransferServiceGetter = transferServiceGetter;
 
         mAppPreferences = PreferenceManager
                 .getDefaultSharedPreferences(mContext);
         
         // Read sorting order, default to sort by name ascending
+
         FileStorageUtils.mSortOrder = mAppPreferences.getInt("sortOrder", 0);
         FileStorageUtils.mSortAscending = mAppPreferences.getBoolean("sortAscending", true);
         
@@ -158,17 +160,22 @@ public class FileListListAdapter extends BaseAdapter implements ListAdapter {
             viewType = ViewType.GRID_ITEM;
         }
 
-        // Create View
-        switch (viewType){
-            case GRID_IMAGE:
-                view = inflator.inflate(R.layout.grid_image, null);
-                break;
-            case GRID_ITEM:
-                view = inflator.inflate(R.layout.grid_item, null);
-                break;
-            case LIST_ITEM:
-                view = inflator.inflate(R.layout.list_item, null);
-                break;
+        // create view only if differs, otherwise reuse
+        if (convertView == null || (convertView != null && convertView.getTag() != viewType)) {
+            switch (viewType) {
+                case GRID_IMAGE:
+                    view = inflator.inflate(R.layout.grid_image, null);
+                    view.setTag(ViewType.GRID_IMAGE);
+                    break;
+                case GRID_ITEM:
+                    view = inflator.inflate(R.layout.grid_item, null);
+                    view.setTag(ViewType.GRID_ITEM);
+                    break;
+                case LIST_ITEM:
+                    view = inflator.inflate(R.layout.list_item, null);
+                    view.setTag(ViewType.LIST_ITEM);
+                    break;
+            }
         }
 
         view.invalidate();
@@ -187,6 +194,7 @@ public class FileListListAdapter extends BaseAdapter implements ListAdapter {
             switch (viewType){
                 case LIST_ITEM:
                     TextView fileSizeV = (TextView) view.findViewById(R.id.file_size);
+                    TextView fileSizeSeparatorV = (TextView) view.findViewById(R.id.file_separator);
                     TextView lastModV = (TextView) view.findViewById(R.id.last_mod);
                     ImageView checkBoxV = (ImageView) view.findViewById(R.id.custom_checkbox);
 
@@ -195,6 +203,7 @@ public class FileListListAdapter extends BaseAdapter implements ListAdapter {
 
                     checkBoxV.setVisibility(View.GONE);
 
+                    fileSizeSeparatorV.setVisibility(View.VISIBLE);
                     fileSizeV.setVisibility(View.VISIBLE);
                     fileSizeV.setText(DisplayUtils.bytesToHumanReadable(file.getFileLength()));
 
@@ -206,17 +215,18 @@ public class FileListListAdapter extends BaseAdapter implements ListAdapter {
                             } else {
                                 if (parentList.isItemChecked(position)) {
                                     checkBoxV.setImageResource(
-                                            android.R.drawable.checkbox_on_background);
+                                            R.drawable.ic_checkbox_marked);
                                 } else {
                                     checkBoxV.setImageResource(
-                                            android.R.drawable.checkbox_off_background);
+                                            R.drawable.ic_checkbox_blank_outline);
                                 }
                                 checkBoxV.setVisibility(View.VISIBLE);
                             }
                         }
 
                     } else { //Folder
-                        fileSizeV.setVisibility(View.INVISIBLE);
+                        fileSizeSeparatorV.setVisibility(View.GONE);
+                        fileSizeV.setVisibility(View.GONE);
                     }
 
                 case GRID_ITEM:
@@ -228,12 +238,20 @@ public class FileListListAdapter extends BaseAdapter implements ListAdapter {
                 case GRID_IMAGE:
                     // sharedIcon
                     ImageView sharedIconV = (ImageView) view.findViewById(R.id.sharedIcon);
-                    if (file.isShareByLink()) {
+                    if (file.isSharedViaLink()) {
+                        sharedIconV.setImageResource(R.drawable.shared_via_link);
+                        sharedIconV.setVisibility(View.VISIBLE);
+                        sharedIconV.bringToFront();
+                    } else if (file.isSharedWithSharee() || file.isSharedWithMe() ) {
+                        sharedIconV.setImageResource(R.drawable.shared_via_users);
                         sharedIconV.setVisibility(View.VISIBLE);
                         sharedIconV.bringToFront();
                     } else {
                         sharedIconV.setVisibility(View.GONE);
                     }
+
+                    /*ImageView sharedWithMeIcon = (ImageView) view.findViewById(R.id.sharedWithMeIcon);
+                    sharedWithMeIcon.bringToFront();*/
 
                     // local state
                     ImageView localStateView = (ImageView) view.findViewById(R.id.localFileIndicator);
@@ -242,36 +260,47 @@ public class FileListListAdapter extends BaseAdapter implements ListAdapter {
                             mTransferServiceGetter.getFileDownloaderBinder();
                     FileUploaderBinder uploaderBinder =
                             mTransferServiceGetter.getFileUploaderBinder();
-                    boolean downloading = (downloaderBinder != null &&
-                            downloaderBinder.isDownloading(mAccount, file));
                     OperationsServiceBinder opsBinder =
                             mTransferServiceGetter.getOperationsServiceBinder();
-                    downloading |= (opsBinder != null &&
-                            opsBinder.isSynchronizing(mAccount, file.getRemotePath()));
-                    if (downloading) {
-                        localStateView.setImageResource(R.drawable.downloading_file_indicator);
+
+                    localStateView.setVisibility(View.INVISIBLE);   // default first
+
+                    if ( //synchronizing
+                                opsBinder != null &&
+                                opsBinder.isSynchronizing(mAccount, file.getRemotePath())
+                            ) {
+                        localStateView.setImageResource(R.drawable.synchronizing_file_indicator);
                         localStateView.setVisibility(View.VISIBLE);
-                    } else if (uploaderBinder != null &&
-                            uploaderBinder.isUploading(mAccount, file)) {
-                        localStateView.setImageResource(R.drawable.uploading_file_indicator);
+
+                    } else if ( // downloading
+                                downloaderBinder != null &&
+                                downloaderBinder.isDownloading(mAccount, file)
+                            ) {
+                        localStateView.setImageResource(
+                                file.isFolder() ?
+                                        R.drawable.synchronizing_file_indicator :
+                                        R.drawable.downloading_file_indicator
+                        );
                         localStateView.setVisibility(View.VISIBLE);
+
+                    } else if ( //uploading
+                                uploaderBinder != null &&
+                                uploaderBinder.isUploading(mAccount, file)
+                            ) {
+                        localStateView.setImageResource(
+                                file.isFolder() ?
+                                        R.drawable.synchronizing_file_indicator :
+                                        R.drawable.uploading_file_indicator
+                        );
+                        localStateView.setVisibility(View.VISIBLE);
+
+                    } else if (file.getEtagInConflict() != null) {   // conflict
+                        localStateView.setImageResource(R.drawable.conflict_file_indicator);
+                        localStateView.setVisibility(View.VISIBLE);
+
                     } else if (file.isDown()) {
                         localStateView.setImageResource(R.drawable.local_file_indicator);
                         localStateView.setVisibility(View.VISIBLE);
-                    } else {
-                        localStateView.setVisibility(View.INVISIBLE);
-                    }
-
-                    // share with me icon
-                    if (!file.isFolder()) {
-                        ImageView sharedWithMeIconV = (ImageView)
-                                view.findViewById(R.id.sharedWithMeIcon);
-                        sharedWithMeIconV.bringToFront();
-                        if (checkIfFileIsSharedWithMe(file)) {
-                            sharedWithMeIconV.setVisibility(View.VISIBLE);
-                        } else {
-                            sharedWithMeIconV.setVisibility(View.GONE);
-                        }
                     }
 
                     break;
@@ -281,7 +310,7 @@ public class FileListListAdapter extends BaseAdapter implements ListAdapter {
             
             // this if-else is needed even though favorite icon is visible by default
             // because android reuses views in listview
-            if (!file.keepInSync()) {
+            if (!file.isFavorite()) {
                 view.findViewById(R.id.favoriteIcon).setVisibility(View.GONE);
             } else {
                 view.findViewById(R.id.favoriteIcon).setVisibility(View.VISIBLE);
@@ -316,69 +345,32 @@ public class FileListListAdapter extends BaseAdapter implements ListAdapter {
                             task.execute(file);
                         }
                     }
+
+                    if (file.getMimetype().equalsIgnoreCase("image/png")) {
+                        fileIcon.setBackgroundColor(mContext.getResources()
+                                .getColor(R.color.background_color));
+                    }
+
+
                 } else {
-                    fileIcon.setImageResource(DisplayUtils.getFileTypeIconId(file.getMimetype(),
+                    fileIcon.setImageResource(MimetypeIconUtil.getFileTypeIconId(file.getMimetype(),
                             file.getFileName()));
                 }
 
+
             } else {
                 // Folder
-                if (checkIfFileIsSharedWithMe(file)) {
-                    fileIcon.setImageResource(R.drawable.shared_with_me_folder);
-                } else if (file.isShareByLink()) {
-                    // If folder is sharedByLink, icon folder must be changed to
-                    // folder-public one
-                    fileIcon.setImageResource(R.drawable.folder_public);
-                } else {
-                    fileIcon.setImageResource(
-                            DisplayUtils.getFileTypeIconId(file.getMimetype(), file.getFileName())
-                    );
-                }
+                fileIcon.setImageResource(
+                        MimetypeIconUtil.getFolderTypeIconId(
+                                file.isSharedWithMe() || file.isSharedWithSharee(),
+                                file.isSharedViaLink()
+                        )
+                );
             }
         }
 
         return view;
     }
-
-    /**
-     * Local Folder size in human readable format
-     * 
-     * @param path
-     *            String
-     * @return Size in human readable format
-     */
-    private String getFolderSizeHuman(String path) {
-
-        File dir = new File(path);
-
-        if (dir.exists()) {
-            long bytes = FileStorageUtils.getFolderSize(dir);
-            return DisplayUtils.bytesToHumanReadable(bytes);
-        }
-
-        return "0 B";
-    }
-
-    /**
-     * Local Folder size
-     * @param dir File
-     * @return Size in bytes
-     */
-    private long getFolderSize(File dir) {
-        if (dir.exists()) {
-            long result = 0;
-            File[] fileList = dir.listFiles();
-            for(int i = 0; i < fileList.length; i++) {
-                if(fileList[i].isDirectory()) {
-                    result += getFolderSize(fileList[i]);
-                } else {
-                    result += fileList[i].length();
-                }
-            }
-            return result;
-        }
-        return 0;
-    } 
 
     @Override
     public int getViewTypeCount() {
@@ -402,14 +394,16 @@ public class FileListListAdapter extends BaseAdapter implements ListAdapter {
      * @param updatedStorageManager     Optional updated storage manager; used to replace 
      *                                  mStorageManager if is different (and not NULL)
      */
-    public void swapDirectory(OCFile directory, FileDataStorageManager updatedStorageManager) {
+    public void swapDirectory(OCFile directory, FileDataStorageManager updatedStorageManager
+            /*, boolean onlyOnDevice*/) {
         mFile = directory;
         if (updatedStorageManager != null && updatedStorageManager != mStorageManager) {
             mStorageManager = updatedStorageManager;
             mAccount = AccountUtils.getCurrentOwnCloudAccount(mContext);
         }
         if (mStorageManager != null) {
-            mFiles = mStorageManager.getFolderContent(mFile);
+            // TODO Enable when "On Device" is recovered ?
+            mFiles = mStorageManager.getFolderContent(mFile/*, onlyOnDevice*/);
             mFilesOrig.clear();
             mFilesOrig.addAll(mFiles);
             
@@ -443,20 +437,6 @@ public class FileListListAdapter extends BaseAdapter implements ListAdapter {
     }
     
     
-    /**
-     * Check if parent folder does not include 'S' permission and if file/folder
-     * is shared with me
-     * 
-     * @param file: OCFile
-     * @return boolean: True if it is shared with me and false if it is not
-     */
-    private boolean checkIfFileIsSharedWithMe(OCFile file) {
-        return (mFile.getPermissions() != null 
-                && !mFile.getPermissions().contains(PERMISSION_SHARED_WITH_ME)
-                && file.getPermissions() != null 
-                && file.getPermissions().contains(PERMISSION_SHARED_WITH_ME));
-    }
-
     public void setSortOrder(Integer order, boolean ascending) {
         SharedPreferences.Editor editor = mAppPreferences.edit();
         editor.putInt("sortOrder", order);
@@ -479,5 +459,9 @@ public class FileListListAdapter extends BaseAdapter implements ListAdapter {
 
     public void setGridMode(boolean gridMode) {
         mGridMode = gridMode;
+    }
+
+    public boolean isGridMode() {
+        return mGridMode;
     }
 }

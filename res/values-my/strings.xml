@@ -3,6 +3,10 @@
   <string name="actionbar_upload_files">ဖိုင်များ</string>
   <!--TODO re-enable when server-side folder size calculation is available   
     	<item>Biggest - Smallest</item>-->
+  <!--TODO re-enable when "Accounts" is available in Navigation Drawer-->
+  <!--<string name="drawer_item_accounts">Accounts</string>-->
+  <!--TODO re-enable when "On Device" is available
+    <string name="drawer_item_on_device">On device</string>-->
   <string name="prefs_help">အကူအညီ</string>
   <string name="auth_username">သုံးစွဲသူအမည်</string>
   <string name="auth_password">စကားဝှက်</string>
@@ -15,4 +19,8 @@
   <string name="common_cancel">ပယ်ဖျက်မည်</string>
   <string name="empty"></string>
   <string name="folder_picker_choose_button_text">ရွေးချယ်</string>
+  <string name="share_via_link_expiration_date_label">သက်တမ်းကုန်ဆုံးမည့်ရက်သတ်မှတ်မည်</string>
+  <string name="share_privilege_can_edit">ပြင်ဆင်နိုင်</string>
+  <string name="share_privilege_can_edit_create">ဖန်တီးမည်</string>
+  <string name="share_privilege_can_edit_delete">ဖျက်မည်</string>
 </resources>
